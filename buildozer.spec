@@ -5,7 +5,7 @@ package.domain = org.seuusuario
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 1.0
-requirements = python3==3.11,kivy,sqlite3
+requirements = python3==3.11, hostpython3==3.11, kivy, sqlite3
 orientation = portrait
 fullscreen = 1
 android.permissions = INTERNET

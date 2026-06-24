@@ -118,7 +118,7 @@ class SmoothTextInput(TextInput):
         self.background_color = (0, 0, 0, 0)
         self.cursor_color = PRIMARY_GREEN
         self.foreground_color = (0, 0, 0, 1)         
-        self.hint_text_color = (0.40, 0.45, 0.50, 1) 
+        self.hint_text_color = (0.40, 0.45, 0.50, 1)  
         self.font_size = dp(18)                      
         self.padding = [dp(14), dp(16), dp(14), dp(12)] 
         self.multiline = False
@@ -196,21 +196,25 @@ class ProjectScreen(Screen):
         conn.close()
         
         for pid, nome, data in rows:
-            row = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(70), padding=[dp(12), dp(8), dp(12), dp(8)])
+            row = BoxLayout(orientation='horizontal', spacing=dp(8), size_hint_y=None, height=dp(70), padding=[dp(10), dp(8), dp(10), dp(8)])
             with row.canvas.before:
                 Color(1, 1, 1, 1)
                 row.bg_card = RoundedRectangle(pos=row.pos, size=row.size, radius=[dp(10)])
             row.bind(pos=lambda ins, val: setattr(ins.bg_card, 'pos', val), size=lambda ins, val: setattr(ins.bg_card, 'size', val))
             
-            lbl = Label(text=f"{nome}\n[color=748596]{data}[/color]", markup=True, font_size=dp(15), color=TEXT_MAIN, size_hint_x=0.6, halign='left', valign='middle')
+            lbl = Label(text=f"{nome}\n[color=748596]{data}[/color]", markup=True, font_size=dp(14), color=TEXT_MAIN, size_hint_x=0.46, halign='left', valign='middle')
             lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
             row.add_widget(lbl)
             
-            btn_abrir = SmoothButton(text="Abrir", bg_color=PRIMARY_GREEN, size_hint_x=0.2, font_size=dp(14), radius=[dp(8)])
+            btn_abrir = SmoothButton(text="Abrir", bg_color=PRIMARY_GREEN, size_hint_x=0.18, font_size=dp(13), radius=[dp(8)])
             btn_abrir.bind(on_press=lambda b, i=pid, n=nome: self.abrir_projeto(i, n))
             row.add_widget(btn_abrir)
+
+            btn_editar = SmoothButton(text="Editar", bg_color=ACCENT_BLUE, size_hint_x=0.18, font_size=dp(13), radius=[dp(8)])
+            btn_editar.bind(on_press=lambda b, i=pid, n=nome: self.editar_projeto(i, n))
+            row.add_widget(btn_editar)
             
-            btn_deletar = SmoothButton(text="Excluir", bg_color=DANGER_RED, size_hint_x=0.2, font_size=dp(14), radius=[dp(8)])
+            btn_deletar = SmoothButton(text="Excluir", bg_color=DANGER_RED, size_hint_x=0.18, font_size=dp(13), radius=[dp(8)])
             btn_deletar.bind(on_press=lambda b, i=pid: self.confirmar_exclusao(i))
             row.add_widget(btn_deletar)
             
@@ -221,6 +225,37 @@ class ProjectScreen(Screen):
         app.current_project_id = proj_id
         app.current_project_name = nome
         app.sm.current = "trees"
+
+    def editar_projeto(self, proj_id, nome_atual):
+        box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
+        box.add_widget(Label(text="Alterar nome do empreendimento:", font_size=dp(16), color=(1, 1, 1, 1)))
+        
+        txt_input = SmoothTextInput(text=nome_atual, size_hint_y=None, height=INPUT_HEIGHT)
+        box.add_widget(txt_input)
+        
+        btn_box = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(50))
+        btn_salvar = SmoothButton(text="Salvar", bg_color=PRIMARY_GREEN)
+        btn_cancelar = SmoothButton(text="Cancelar", bg_color=SLATE_GRAY)
+        btn_box.add_widget(btn_salvar)
+        btn_box.add_widget(btn_cancelar)
+        box.add_widget(btn_box)
+        
+        popup = Popup(title="Editar Nome do Projeto", content=box, size_hint=(0.9, 0.35))
+        
+        def salvar_nome(instance):
+            novo_nome = txt_input.text.strip()
+            if novo_nome:
+                conn = sqlite3.connect(get_db_path())
+                cursor = conn.cursor()
+                cursor.execute("UPDATE projetos SET nome=? WHERE id=?", (novo_nome, proj_id))
+                conn.commit()
+                conn.close()
+                popup.dismiss()
+                self.carregar_projetos()
+                
+        btn_salvar.bind(on_press=salvar_nome)
+        btn_cancelar.bind(on_press=popup.dismiss)
+        popup.open()
 
     def confirmar_exclusao(self, proj_id):
         box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
@@ -260,18 +295,23 @@ class TreeScreen(Screen):
             self.bg_rect = Rectangle(size=self.size, pos=self.pos)
         self.bind(size=self._update_screen_bg, pos=self._update_screen_bg)
         
-        scroll = ScrollView(size_hint=(1, 1))
-        self.layout = BoxLayout(orientation='vertical', spacing=dp(16), padding=dp(20), size_hint_y=None)
-        self.layout.bind(minimum_height=self.layout.setter('height'))
-        scroll.add_widget(self.layout)
-        self.add_widget(scroll)
-
-        btn_voltar = SmoothButton(text="< Voltar para Projetos", bg_color=SLATE_GRAY, size_hint_y=None, height=dp(50))
+        # Estrutura Principal da Tela
+        root_layout = BoxLayout(orientation='vertical')
+        
+        # --- BLOCO SUPERIOR FIXO ---
+        top_bar = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(95), padding=[dp(20), dp(10), dp(20), dp(5)], spacing=dp(5))
+        btn_voltar = SmoothButton(text="< Voltar para Projetos", bg_color=SLATE_GRAY, size_hint_y=None, height=dp(45))
         btn_voltar.bind(on_press=self.go_back)
-        self.layout.add_widget(btn_voltar)
+        self.lbl_titulo = Label(text="Nova Árvore", font_size=FONT_SIZE_LARGE, bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(35), halign='left')
+        self.lbl_titulo.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
+        top_bar.add_widget(btn_voltar)
+        top_bar.add_widget(self.lbl_titulo)
+        root_layout.add_widget(top_bar)
 
-        self.lbl_titulo = Label(text="Nova Árvore", font_size=FONT_SIZE_LARGE, bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(35))
-        self.layout.add_widget(self.lbl_titulo)
+        # --- CONTEÚDO ROLÁVEL (FORMULÁRIO E LISTA) ---
+        scroll = ScrollView(size_hint=(1, 1))
+        self.layout = BoxLayout(orientation='vertical', spacing=dp(16), padding=[dp(20), dp(5), dp(20), dp(10)], size_hint_y=None)
+        self.layout.bind(minimum_height=self.layout.setter('height'))
 
         self.gps_input = SmoothTextInput(hint_text="Identificação GPS", size_hint=(1,None), height=INPUT_HEIGHT)
         self.placa_input = SmoothTextInput(text="1", hint_text="Número da placa", size_hint=(1,None), height=INPUT_HEIGHT)
@@ -303,14 +343,28 @@ class TreeScreen(Screen):
         self.tree_list_layout = GridLayout(cols=1, spacing=dp(10), padding=dp(2), size_hint_y=None)
         self.tree_list_layout.bind(minimum_height=self.tree_list_layout.setter('height'))
         self.layout.add_widget(self.tree_list_layout)
+        
+        scroll.add_widget(self.layout)
+        root_layout.add_widget(scroll)
 
-        self.history_button = SmoothButton(text="Ver Histórico Completo", bg_color=ACCENT_BLUE, size_hint_y=None, height=BUTTON_HEIGHT_LARGE)
+        # --- BARRA INFERIOR FIXA FLUTUANTE (BLINDADA CONTRA ESMAGAMENTO) ---
+        bottom_bar = BoxLayout(orientation='horizontal', spacing=dp(12), padding=dp(15), size_hint_y=None, height=dp(85))
+        with bottom_bar.canvas.before:
+            Color(0.90, 0.92, 0.95, 1)
+            self.bb_rect = Rectangle(pos=bottom_bar.pos, size=bottom_bar.size)
+        bottom_bar.bind(pos=lambda ins, val: setattr(ins.bb_rect, 'pos', val), size=lambda ins, val: setattr(ins.bb_rect, 'size', val))
+
+        self.history_button = SmoothButton(text="Ver Histórico", bg_color=ACCENT_BLUE, size_hint_x=0.5, font_size=dp(16))
         self.history_button.bind(on_press=lambda x: setattr(App.get_running_app().sm, 'current', 'history'))
-        self.layout.add_widget(self.history_button)
-
-        self.export_button = SmoothButton(text="Exportar / Resumo do Projeto", bg_color=PRIMARY_GREEN, size_hint_y=None, height=BUTTON_HEIGHT_LARGE)
+        
+        self.export_button = SmoothButton(text="Finalizar e Exportar", bg_color=PRIMARY_GREEN, size_hint_x=0.5, font_size=dp(16))
         self.export_button.bind(on_press=lambda x: setattr(App.get_running_app().sm, 'current', 'confirm'))
-        self.layout.add_widget(self.export_button)
+        
+        bottom_bar.add_widget(self.history_button)
+        bottom_bar.add_widget(self.export_button)
+        root_layout.add_widget(bottom_bar)
+
+        self.add_widget(root_layout)
 
     def _update_screen_bg(self, instance, value):
         self.bg_rect.pos = instance.pos
@@ -437,11 +491,11 @@ class TreeScreen(Screen):
         
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
-        cursor.execute("SELECT id, gps, placa, nome, altura FROM arvores WHERE projeto_id=? ORDER BY id DESC LIMIT 5", (app.current_project_id,))
+        cursor.execute("SELECT id, gps, placa, nome, altura, caps FROM arvores WHERE projeto_id=? ORDER BY id DESC LIMIT 5", (app.current_project_id,))
         rows = cursor.fetchall()
         conn.close()
 
-        for tid, gps, placa, nome, alt in rows:
+        for tid, gps, placa, nome, alt, caps in rows:
             row_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(75), padding=[dp(15), dp(10), dp(15), dp(10)])
             with row_layout.canvas.before:
                 Color(1, 1, 1, 1) 
@@ -450,9 +504,10 @@ class TreeScreen(Screen):
             
             txt_nome = nome if nome else "Sem nome"
             txt_gps = gps if gps else "-"
-            texto_linha = f"Placa: {placa}  |  {txt_nome}\nGPS: {txt_gps}"
+            txt_caps = caps if caps else "-"
+            texto_linha = f"Placa: {placa} | {txt_nome} (H: {alt}m)\nGPS: {txt_gps} | CAP: {txt_caps}"
             
-            lbl = Label(text=texto_linha, font_size=dp(14), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
+            lbl = Label(text=texto_linha, font_size=dp(13), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
             lbl.bind(size=lambda instance, val: setattr(instance, 'text_size', (val[0], val[1])))
             row_layout.add_widget(lbl)
             
@@ -540,13 +595,13 @@ class HistoryScreen(Screen):
         
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
-        cursor.execute("SELECT id, gps, placa, nome FROM arvores WHERE projeto_id=? ORDER BY id DESC", (app.current_project_id,))
+        cursor.execute("SELECT id, gps, placa, nome, altura, caps FROM arvores WHERE projeto_id=? ORDER BY id DESC", (app.current_project_id,))
         rows = cursor.fetchall()
         conn.close()
         
         tree_screen = app.sm.get_screen("trees")
 
-        for tid, gps, placa, nome in rows:
+        for tid, gps, placa, nome, alt, caps in rows:
             row_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(75), padding=[dp(15), dp(10), dp(15), dp(10)])
             with row_layout.canvas.before:
                 Color(1, 1, 1, 1)
@@ -555,9 +610,10 @@ class HistoryScreen(Screen):
             
             txt_gps = gps if gps else "-"
             txt_nome = nome if nome else "Sem nome"
-            texto_linha = f"Placa: {placa}  |  {txt_nome}\nGPS: {txt_gps}"
+            txt_caps = caps if caps else "-"
+            texto_linha = f"Placa: {placa} | {txt_nome} (H: {alt}m)\nGPS: {txt_gps} | CAP: {txt_caps}"
             
-            lbl = Label(text=texto_linha, font_size=dp(14), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
+            lbl = Label(text=texto_linha, font_size=dp(13), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
             lbl.bind(size=lambda instance, val: setattr(instance, 'text_size', (val[0], val[1])))
             row_layout.add_widget(lbl)
             
@@ -705,13 +761,13 @@ class TreeApp(App):
         return self.sm
 
     def on_start(self):
-        # Solicitação amigável de permissões em tempo de execução no Android
         if platform == 'android':
             from android.permissions import request_permissions, Permission
-            request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE])
+            request_permissions([
+                Permission.INTERNET,
+                Permission.WRITE_EXTERNAL_STORAGE,
+                Permission.READ_EXTERNAL_STORAGE
+            ])
 
-    def on_pause(self):
-        return True
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     TreeApp().run()

@@ -23,6 +23,7 @@ LIGHT_BG = get_color_from_hex("#F5F5F5")
 TEXT_DARK = get_color_from_hex("#212121")
 ALERT_RED = get_color_from_hex("#C62828")
 
+# --- INTERFACE VISUAL (KV LANGUAGE) CORRIGIDA ---
 Builder.load_string('''
 <LinhaHistorico>:
     orientation: 'vertical'
@@ -60,7 +61,9 @@ Builder.load_string('''
     canvas.before:
         Color:
             rgba: 0.96, 0.96, 0.96, 1
-        Rectangle: size: self.size, pos: self.pos
+        Rectangle:
+            size: self.size
+            pos: self.pos
     BoxLayout:
         orientation: 'vertical'
         padding: dp(20)
@@ -111,8 +114,11 @@ Builder.load_string('''
     BoxLayout:
         orientation: 'vertical'
         canvas.before:
-            Color: rgba: 0.96, 0.96, 0.96, 1
-            Rectangle: size: self.size, pos: self.pos
+            Color:
+                rgba: 0.96, 0.96, 0.96, 1
+            Rectangle:
+                size: self.size
+                pos: self.pos
             
         Label:
             id: lbl_projeto_ativo
@@ -122,8 +128,11 @@ Builder.load_string('''
             size_hint_y: None
             height: dp(40)
             canvas.before:
-                Color: rgba: 0.2, 0.2, 0.2, 1
-                Rectangle: size: self.size, pos: self.pos
+                Color:
+                    rgba: 0.2, 0.2, 0.2, 1
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
 
         ScrollView:
             GridLayout:
@@ -251,15 +260,12 @@ Builder.load_string('''
 # --- BANCO DE DADOS DETECTA DIRETÓRIO SEGURO ---
 def db_query(query, params=(), fetch=False):
     try:
-        # Busca a instância do aplicativo Kivy em execução
         app = App.get_running_app()
-        # Se o app já iniciou e tem uma pasta de dados configurada (como no Android)
         if app and app.user_data_dir:
             caminho_banco = os.path.join(app.user_data_dir, 'inventario_florestal.db')
         else:
             caminho_banco = 'inventario_florestal.db'
     except Exception:
-        # Fallback caso rode fora do ciclo principal do Kivy
         caminho_banco = 'inventario_florestal.db'
 
     conn = sqlite3.connect(caminho_banco)
@@ -369,7 +375,7 @@ class TelaCadastro(Screen):
         for ti in self.cap_inputs: self.ids.container_caps.remove_widget(ti.parent)
         self.cap_inputs.clear(); self.atualizar_placa()
 
-class TelaHistorico(Screen):
+class TelaTelaHistorico(Screen):
     def on_enter(self):
         self.proj = App.get_running_app().projeto_ativo
         self.carregar_dados_rv()

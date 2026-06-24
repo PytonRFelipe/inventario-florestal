@@ -16,15 +16,21 @@ from kivy.metrics import dp
 from kivy.utils import get_color_from_hex
 from kivy.lang import Builder
 
-# --- ESTILOS VISUAIS ---
+# --- ESTILOS VISUAIS PARA O PYTHON ---
 PRIMARY_GREEN = get_color_from_hex("#2E7D32")
 SECONDARY_GREEN = get_color_from_hex("#4CAF50")
 LIGHT_BG = get_color_from_hex("#F5F5F5")
 TEXT_DARK = get_color_from_hex("#212121")
 ALERT_RED = get_color_from_hex("#C62828")
 
-# --- INTERFACE VISUAL (KV LANGUAGE) CORRIGIDA ---
+# --- INTERFACE VISUAL (KV LANGUAGE) COESÃO DE ESCOPO ---
 Builder.load_string('''
+#:import utils kivy.utils
+#:set PRIMARY_GREEN utils.get_color_from_hex("#2E7D32")
+#:set SECONDARY_GREEN utils.get_color_from_hex("#4CAF50")
+#:set TEXT_DARK utils.get_color_from_hex("#212121")
+#:set ALERT_RED utils.get_color_from_hex("#C62828")
+
 <LinhaHistorico>:
     orientation: 'vertical'
     size_hint_y: None
@@ -375,7 +381,8 @@ class TelaCadastro(Screen):
         for ti in self.cap_inputs: self.ids.container_caps.remove_widget(ti.parent)
         self.cap_inputs.clear(); self.atualizar_placa()
 
-class TelaTelaHistorico(Screen):
+# --- CLASSE CORRIGIDA SEM DUPLICIDADE NO NOME ---
+class TelaHistorico(Screen):
     def on_enter(self):
         self.proj = App.get_running_app().projeto_ativo
         self.carregar_dados_rv()

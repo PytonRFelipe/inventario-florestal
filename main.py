@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
@@ -247,9 +248,21 @@ Builder.load_string('''
             on_release: root.manager.current = 'cadastro'
 ''')
 
-# --- BANCO DE DADOS ---
+# --- BANCO DE DADOS DETECTA DIRETÓRIO SEGURO ---
 def db_query(query, params=(), fetch=False):
-    conn = sqlite3.connect('inventario_florestal.db')
+    try:
+        # Busca a instância do aplicativo Kivy em execução
+        app = App.get_running_app()
+        # Se o app já iniciou e tem uma pasta de dados configurada (como no Android)
+        if app and app.user_data_dir:
+            caminho_banco = os.path.join(app.user_data_dir, 'inventario_florestal.db')
+        else:
+            caminho_banco = 'inventario_florestal.db'
+    except Exception:
+        # Fallback caso rode fora do ciclo principal do Kivy
+        caminho_banco = 'inventario_florestal.db'
+
+    conn = sqlite3.connect(caminho_banco)
     cursor = conn.cursor()
     cursor.execute(query, params)
     res = cursor.fetchall() if fetch else None
@@ -329,7 +342,7 @@ class TelaCadastro(Screen):
         if dup_p: avisos.append(f"- Placa {p} já existe")
 
         if avisos:
-            msg = "Avisos:\\n" + "\\n".join(avisos) + "\\n\\nSalvar assim mesmo?"
+            msg = "Avisos:\n" + "\n".join(avisos) + "\n\nSalvar assim mesmo?"
             self.popup_confirm(msg, p, n, caps_f, h, g)
         else:
             self.salvar(p, n, caps_f, h, g)

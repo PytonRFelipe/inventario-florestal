@@ -1,404 +1,717 @@
+import csv
 import os
 import sqlite3
+from datetime import datetime
 from kivy.app import App
-from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.recycleview import RecycleView
-from kivy.uix.recycleview.views import RecycleDataViewBehavior
 from kivy.uix.textinput import TextInput
-from kivy.uix.label import Label
 from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.graphics import Color, Rectangle, RoundedRectangle, Line
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
-from kivy.properties import StringProperty, ListProperty, ObjectProperty
-from kivy.metrics import dp
-from kivy.utils import get_color_from_hex
-from kivy.lang import Builder
+from kivy.core.window import Window
+from kivy.metrics import dp 
+from kivy.properties import ListProperty
+from kivy.utils import platform
 
-# --- ESTILOS VISUAIS PARA O PYTHON ---
-PRIMARY_GREEN = get_color_from_hex("#2E7D32")
-SECONDARY_GREEN = get_color_from_hex("#4CAF50")
-LIGHT_BG = get_color_from_hex("#F5F5F5")
-TEXT_DARK = get_color_from_hex("#212121")
-ALERT_RED = get_color_from_hex("#C62828")
+# Ajuste de teclado virtual
+Window.softinput_mode = 'below_target'
 
-# --- INTERFACE VISUAL (KV LANGUAGE) COESÃO DE ESCOPO ---
-Builder.load_string('''
-#:import utils kivy.utils
-#:set PRIMARY_GREEN utils.get_color_from_hex("#2E7D32")
-#:set SECONDARY_GREEN utils.get_color_from_hex("#4CAF50")
-#:set TEXT_DARK utils.get_color_from_hex("#212121")
-#:set ALERT_RED utils.get_color_from_hex("#C62828")
+# --- PALETA DE CORES DE ALTA VISIBILIDADE ---
+BG_COLOR = (0.95, 0.96, 0.98, 1)      
+TEXT_MAIN = (0, 0, 0, 1)              
+TEXT_MUTED = (0.25, 0.30, 0.35, 1)    
+PRIMARY_GREEN = (0.05, 0.60, 0.40, 1) 
+ACCENT_BLUE = (0.05, 0.45, 0.75, 1)    
+SLATE_GRAY = (0.40, 0.45, 0.50, 1)    
+DANGER_RED = (0.85, 0.15, 0.15, 1)    
 
-<LinhaHistorico>:
-    orientation: 'vertical'
-    size_hint_y: None
-    height: dp(65)
-    padding: dp(8)
-    canvas.before:
-        Color:
-            rgba: (1, 1, 1, 1)
-        Rectangle:
-            size: self.size
-            pos: self.pos
-        Color:
-            rgba: (0.8, 0.8, 0.8, 1)
-        Line:
-            points: [self.x, self.y, self.x + self.width, self.y]
-            width: 1
-    BoxLayout:
-        Label:
-            text: self.parent.parent.text_placa
-            bold: True
-            color: 0.1, 0.1, 0.1, 1
-            size_hint_x: 0.3
-        Label:
-            text: self.parent.parent.text_nome
-            bold: True
-            color: 0.18, 0.49, 0.2, 1
-            size_hint_x: 0.7
-    Label:
-        text: self.parent.text_detalhes
-        font_size: '12sp'
-        color: 0.4, 0.4, 0.4, 1
+INPUT_HEIGHT = dp(58)
+BUTTON_HEIGHT_LARGE = dp(68)
+BUTTON_HEIGHT_MEDIUM = dp(58)
+FONT_SIZE_LARGE = dp(22)
+FONT_SIZE_MEDIUM = dp(18)
 
-<TelaMenu>:
-    canvas.before:
-        Color:
-            rgba: 0.96, 0.96, 0.96, 1
-        Rectangle:
-            size: self.size
-            pos: self.pos
-    BoxLayout:
-        orientation: 'vertical'
-        padding: dp(20)
-        spacing: dp(15)
-        
-        Label:
-            text: "INVENTÁRIO FLORESTAL"
-            font_size: '24sp'
-            bold: True
-            color: 0.18, 0.49, 0.2, 1
-            size_hint_y: None
-            height: dp(60)
+# --- GERENCIAMENTO DINÂMICO DE CAMINHOS (COMPATÍVEL COM ANDROID 14) ---
+def get_db_path():
+    if platform == 'android':
+        from jnius import autoclass
+        context = autoclass('org.kivy.android.PythonActivity').mActivity
+        return os.path.join(context.getFilesDir().getAbsolutePath(), "inventario.db")
+    return "inventario.db"
 
-        BoxLayout:
-            orientation: 'vertical'
-            spacing: dp(5)
-            size_hint_y: None
-            height: dp(100)
-            Label:
-                text: "Novo Levantamento (Nome do Projeto/Fazenda):"
-                color: TEXT_DARK
-                halign: 'left'
-                text_size: self.width, None
-            TextInput:
-                id: input_novo_projeto
-                multiline: False
-                hint_text: "Ex: Fazenda_Cedro_Talhao_01"
-            Button:
-                text: "INICIAR NOVO TRABALHO"
-                background_color: PRIMARY_GREEN
-                on_release: root.criar_novo_projeto()
-
-        Label:
-            text: "Ou continue um trabalho existente:"
-            color: TEXT_DARK
-            size_hint_y: None
-            height: dp(30)
-            
-        ScrollView:
-            GridLayout:
-                id: container_projetos
-                cols: 1
-                spacing: dp(10)
-                size_hint_y: None
-                height: self.minimum_height
-
-<TelaCadastro>:
-    BoxLayout:
-        orientation: 'vertical'
-        canvas.before:
-            Color:
-                rgba: 0.96, 0.96, 0.96, 1
-            Rectangle:
-                size: self.size
-                pos: self.pos
-            
-        Label:
-            id: lbl_projeto_ativo
-            text: "Projeto: ---"
-            background_color: 0.2, 0.2, 0.2, 1
-            color: 1, 1, 1, 1
-            size_hint_y: None
-            height: dp(40)
-            canvas.before:
-                Color:
-                    rgba: 0.2, 0.2, 0.2, 1
-                Rectangle:
-                    size: self.size
-                    pos: self.pos
-
-        ScrollView:
-            GridLayout:
-                id: container_caps
-                cols: 1
-                size_hint_y: None
-                height: self.minimum_height
-                padding: dp(16)
-                spacing: dp(12)
-
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(45)
-                    Label:
-                        text: "Nº Placa *:"
-                        color: TEXT_DARK
-                        size_hint_x: 0.4
-                    TextInput:
-                        id: input_placa
-                        multiline: False
-                
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(45)
-                    Label:
-                        text: "Espécie *:"
-                        color: TEXT_DARK
-                        size_hint_x: 0.4
-                    TextInput:
-                        id: input_nome
-                        multiline: False
-
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(45)
-                    Label:
-                        text: "CAP Fuste 1 (cm):"
-                        color: TEXT_DARK
-                        size_hint_x: 0.4
-                    TextInput:
-                        id: input_cap1
-                        input_type: 'number'
-                        input_filter: 'float'
-
-                Button:
-                    text: "+ Adicionar Fuste Extra"
-                    size_hint_y: None
-                    height: dp(40)
-                    background_color: SECONDARY_GREEN
-                    on_release: root.incluir_novo_fuste()
-
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(45)
-                    Label:
-                        text: "Altura Tot. (m):"
-                        color: TEXT_DARK
-                        size_hint_x: 0.4
-                    TextInput:
-                        id: input_altura
-                        input_type: 'number'
-                        input_filter: 'float'
-
-                BoxLayout:
-                    size_hint_y: None
-                    height: dp(45)
-                    Label:
-                        text: "Nº Ponto GPS:"
-                        color: TEXT_DARK
-                        size_hint_x: 0.4
-                    TextInput:
-                        id: input_gps
-                        input_type: 'number'
-                        input_filter: 'int'
-
-                Button:
-                    text: "SALVAR ÁRVORE"
-                    size_hint_y: None
-                    height: dp(60)
-                    background_color: PRIMARY_GREEN
-                    bold: True
-                    on_release: root.validar_e_salvar()
-
-        BoxLayout:
-            size_hint_y: None
-            height: dp(60)
-            padding: dp(5)
-            spacing: dp(10)
-            Button:
-                text: "Menu Inicial"
-                background_color: 0.4, 0.4, 0.4, 1
-                on_release: root.manager.current = 'menu'
-            Button:
-                text: "Histórico / Busca"
-                background_color: SECONDARY_GREEN
-                on_release: root.manager.current = 'historico'
-
-<TelaHistorico>:
-    BoxLayout:
-        orientation: 'vertical'
-        padding: dp(10)
-        spacing: dp(10)
-        TextInput:
-            id: txt_pesquisa
-            hint_text: "Pesquisar por Placa ou Nome..."
-            size_hint_y: None
-            height: dp(45)
-            on_text: root.carregar_dados_rv(self.text)
-        RecycleView:
-            id: rv_historico
-            viewclass: 'LinhaHistorico'
-            RecycleBoxLayout:
-                default_size: None, dp(65)
-                default_size_hint: 1, None
-                size_hint_y: None
-                height: self.minimum_height
-                orientation: 'vertical'
-        Button:
-            text: "Voltar ao Cadastro"
-            size_hint_y: None
-            height: dp(50)
-            on_release: root.manager.current = 'cadastro'
-''')
-
-# --- BANCO DE DADOS DETECTA DIRETÓRIO SEGURO ---
-def db_query(query, params=(), fetch=False):
-    try:
-        app = App.get_running_app()
-        if app and app.user_data_dir:
-            caminho_banco = os.path.join(app.user_data_dir, 'inventario_florestal.db')
-        else:
-            caminho_banco = 'inventario_florestal.db'
-    except Exception:
-        caminho_banco = 'inventario_florestal.db'
-
-    conn = sqlite3.connect(caminho_banco)
-    cursor = conn.cursor()
-    cursor.execute(query, params)
-    res = cursor.fetchall() if fetch else None
-    conn.commit()
-    conn.close()
-    return res
+def get_export_path(filename):
+    if platform == 'android':
+        from jnius import autoclass
+        context = autoclass('org.kivy.android.PythonActivity').mActivity
+        ext_dir = os.path.join(context.getExternalFilesDir(None).getAbsolutePath(), "InventarioFlorestal")
+        if not os.path.exists(ext_dir):
+            os.makedirs(ext_dir)
+        return os.path.join(ext_dir, filename)
+    return filename
 
 def init_db():
-    db_query('''CREATE TABLE IF NOT EXISTS levantamento (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, projeto TEXT, placa TEXT, 
-        nome TEXT, caps TEXT, altura TEXT, gps TEXT)''')
+    conn = sqlite3.connect(get_db_path())
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS projetos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            data_criacao TEXT NOT NULL
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS arvores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            projeto_id INTEGER,
+            timestamp TEXT,
+            gps TEXT,
+            placa TEXT,
+            nome TEXT,
+            altura TEXT,
+            caps TEXT,
+            FOREIGN KEY(projeto_id) REFERENCES projetos(id) ON DELETE CASCADE
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-# --- TELAS ---
-class TelaMenu(Screen):
-    def on_enter(self):
-        init_db()
-        self.atualizar_lista_projetos()
+# ------------------- COMPONENTES CUSTOMIZADOS -------------------
 
-    def atualizar_lista_projetos(self):
-        self.ids.container_projetos.clear_widgets()
-        projetos = db_query("SELECT DISTINCT projeto FROM levantamento", fetch=True)
-        for p in projetos:
-            nome_p = p[0]
-            btn = Button(text=f"Abrir: {nome_p}", size_hint_y=None, height=dp(50), background_color=SECONDARY_GREEN)
-            btn.bind(on_release=lambda x, n=nome_p: self.abrir_projeto(n))
-            self.ids.container_projetos.add_widget(btn)
+class SmoothButton(Button):
+    base_color = ListProperty([0.6, 0.6, 0.6, 1])
+    def __init__(self, bg_color=(0.6, 0.6, 0.6, 1), text_color=(1, 1, 1, 1), radius=None, **kwargs):
+        super().__init__(**kwargs)
+        self.background_normal = ''
+        self.background_color = (0, 0, 0, 0)
+        self.base_color = bg_color
+        self.color = text_color
+        self.radius = radius or [dp(12)]
+        self.bold = True
+        with self.canvas.before:
+            self.canvas_color = Color(*self.base_color)
+            self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=self.radius)
+        self.bind(pos=self._update_rect, size=self._update_rect, state=self._update_state)
 
-    def criar_novo_projeto(self):
-        nome = self.ids.input_novo_projeto.text.strip()
-        if nome:
-            self.abrir_projeto(nome)
+    def _update_rect(self, instance, value):
+        self.rect.pos = instance.pos
+        self.rect.size = instance.size
 
-    def abrir_projeto(self, nome):
-        App.get_running_app().projeto_ativo = nome
-        self.manager.current = 'cadastro'
-
-class LinhaHistorico(RecycleDataViewBehavior, BoxLayout):
-    text_placa = StringProperty(""); text_nome = StringProperty(""); text_detalhes = StringProperty("")
-    def refresh_view_attrs(self, rv, index, data):
-        self.text_placa = f"P: {data['placa']}"; self.text_nome = data['nome']
-        self.text_detalhes = f"CAPs: {data['caps']} | H: {data['altura']} | GPS: {data['gps']}"
-        return super().refresh_view_attrs(rv, index, data)
-
-class TelaCadastro(Screen):
-    cap_inputs = ListProperty([])
-    def on_enter(self):
-        self.projeto_atual = App.get_running_app().projeto_ativo
-        self.ids.lbl_projeto_ativo.text = f"Projeto Ativo: {self.projeto_atual}"
-        self.atualizar_placa()
-
-    def atualizar_placa(self):
-        res = db_query("SELECT MAX(CAST(placa AS INTEGER)) FROM levantamento WHERE projeto=?", (self.projeto_atual,), fetch=True)
-        prox = (res[0][0] + 1) if res and res[0][0] is not None else 1
-        self.ids.input_placa.text = str(prox)
-
-    def incluir_novo_fuste(self):
-        box = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(10))
-        box.add_widget(Label(text=f"CAP F{len(self.cap_inputs)+2}:", color=TEXT_DARK, size_hint_x=0.4))
-        txt = TextInput(input_type='number', input_filter='float')
-        box.add_widget(txt); self.ids.container_caps.add_widget(box)
-        self.cap_inputs.append(txt)
-
-    def validar_e_salvar(self):
-        p, n, h, g = self.ids.input_placa.text.strip(), self.ids.input_nome.text.strip(), self.ids.input_altura.text.strip(), self.ids.input_gps.text.strip()
-        caps = [self.ids.input_cap1.text.strip()] + [ti.text.strip() for ti in self.cap_inputs]
-        caps_f = ", ".join([v for v in caps if v])
-
-        if not p or not n:
-            return self.popup_msg("Placa e Espécie são obrigatórios!", ALERT_RED)
-
-        avisos = []
-        if not caps_f: avisos.append("- Sem CAP")
-        if not h: avisos.append("- Sem Altura")
-        if not g: avisos.append("- Sem GPS")
-        
-        dup_p = db_query("SELECT 1 FROM levantamento WHERE projeto=? AND placa=?", (self.projeto_atual, p), fetch=True)
-        if dup_p: avisos.append(f"- Placa {p} já existe")
-
-        if avisos:
-            msg = "Avisos:\n" + "\n".join(avisos) + "\n\nSalvar assim mesmo?"
-            self.popup_confirm(msg, p, n, caps_f, h, g)
+    def _update_state(self, instance, value):
+        if value == 'down':
+            self.canvas_color.rgba = [c * 0.85 for c in self.base_color[:3]] + [self.base_color[3] if len(self.base_color) > 3 else 1]
         else:
-            self.salvar(p, n, caps_f, h, g)
+            self.canvas_color.rgba = self.base_color
 
-    def popup_msg(self, txt, cor):
-        p = Popup(title="Aviso", content=Label(text=txt), size_hint=(0.8, 0.3))
-        p.open()
+    def on_base_color(self, instance, value):
+        if hasattr(self, 'canvas_color'):
+            self.canvas_color.rgba = value
 
-    def popup_confirm(self, txt, p_val, n_val, c_val, h_val, g_val):
-        cont = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        cont.add_widget(Label(text=txt))
-        btns = BoxLayout(size_hint_y=None, height=dp(50), spacing=10)
-        b1 = Button(text="Corrigir", background_color=PRIMARY_GREEN)
-        b2 = Button(text="Salvar", background_color=ALERT_RED)
-        btns.add_widget(b1); btns.add_widget(b2); cont.add_widget(btns)
-        pop = Popup(title="Atenção", content=cont, size_hint=(0.9, 0.5))
-        b1.bind(on_release=pop.dismiss)
-        b2.bind(on_release=lambda x: [self.salvar(p_val, n_val, c_val, h_val, g_val), pop.dismiss()])
-        pop.open()
+class SmoothTextInput(TextInput):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.background_normal = ''
+        self.background_active = ''
+        self.background_color = (0, 0, 0, 0)
+        self.cursor_color = PRIMARY_GREEN
+        self.foreground_color = (0, 0, 0, 1)         
+        self.hint_text_color = (0.40, 0.45, 0.50, 1) 
+        self.font_size = dp(18)                      
+        self.padding = [dp(14), dp(16), dp(14), dp(12)] 
+        self.multiline = False
+        with self.canvas.before:
+            Color(1, 1, 1, 1)  
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
+            Color(0.70, 0.75, 0.80, 1)  
+            self.border_line = Line(rounded_rectangle=(self.x, self.y, self.width, self.height, dp(12)), width=dp(1.5))
+        self.bind(pos=self._update_rect, size=self._update_rect)
+        
+    def _update_rect(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+        self.border_line.rounded_rectangle = (instance.x, instance.y, instance.width, instance.height, dp(12))
 
-    def salvar(self, p, n, c, h, g):
-        db_query("INSERT INTO levantamento (projeto, placa, nome, caps, altura, gps) VALUES (?,?,?,?,?,?)", (self.projeto_atual, p, n, c, h, g))
-        self.ids.input_nome.text = ""; self.ids.input_cap1.text = ""; self.ids.input_altura.text = ""; self.ids.input_gps.text = ""
-        for ti in self.cap_inputs: self.ids.container_caps.remove_widget(ti.parent)
-        self.cap_inputs.clear(); self.atualizar_placa()
+# ------------------- TELAS DO APLICATIVO -------------------
 
-# --- CLASSE CORRIGIDA SEM DUPLICIDADE NO NOME ---
-class TelaHistorico(Screen):
-    def on_enter(self):
-        self.proj = App.get_running_app().projeto_ativo
-        self.carregar_dados_rv()
-    def carregar_dados_rv(self, busca=""):
-        q = "SELECT placa, nome, caps, altura, gps FROM levantamento WHERE projeto=? AND (placa LIKE ? OR nome LIKE ?) ORDER BY id DESC"
-        res = db_query(q, (self.proj, f"%{busca}%", f"%{busca}%"), fetch=True)
-        self.ids.rv_historico.data = [{'placa': r[0], 'nome': r[1], 'caps': r[2], 'altura': r[3], 'gps': r[4]} for r in res]
+class ProjectScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas.before:
+            Color(*BG_COLOR)
+            self.bg_rect = Rectangle(size=self.size, pos=self.pos)
+        self.bind(size=self._update_screen_bg, pos=self._update_screen_bg)
+        
+        main_layout = BoxLayout(orientation='vertical', spacing=dp(16), padding=dp(20))
+        main_layout.add_widget(Label(text="Inventário Florestal", font_size=dp(26), bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(45)))
+        
+        novo_box = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(140))
+        self.project_input = SmoothTextInput(hint_text="Nome do novo empreendimento", size_hint_y=None, height=INPUT_HEIGHT)
+        btn_criar = SmoothButton(text="Criar Novo Projeto", bg_color=PRIMARY_GREEN, size_hint_y=None, height=BUTTON_HEIGHT_MEDIUM)
+        btn_criar.bind(on_press=self.criar_projeto)
+        novo_box.add_widget(self.project_input)
+        novo_box.add_widget(btn_criar)
+        main_layout.add_widget(novo_box)
+        
+        main_layout.add_widget(Label(text="Projetos Salvos (SQLite)", font_size=dp(16), bold=True, color=TEXT_MUTED, size_hint_y=None, height=dp(25)))
+        
+        scroll = ScrollView(size_hint=(1, 1))
+        self.projects_list_layout = GridLayout(cols=1, spacing=dp(10), padding=dp(2), size_hint_y=None)
+        self.projects_list_layout.bind(minimum_height=self.projects_list_layout.setter('height'))
+        scroll.add_widget(self.projects_list_layout)
+        main_layout.add_widget(scroll)
+        
+        self.add_widget(main_layout)
 
-class InventarioApp(App):
-    projeto_ativo = StringProperty("")
+    def _update_screen_bg(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+
+    def on_pre_enter(self):
+        self.carregar_projetos()
+
+    def criar_projeto(self, instance):
+        nome = self.project_input.text.strip()
+        if not nome:
+            return
+        
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO projetos (nome, data_criacao) VALUES (?, ?)", (nome, datetime.now().strftime('%d/%m/%Y %H:%M')))
+        proj_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        self.project_input.text = ""
+        self.abrir_projeto(proj_id, nome)
+
+    def carregar_projetos(self):
+        self.projects_list_layout.clear_widgets()
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nome, data_criacao FROM projetos ORDER BY id DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        for pid, nome, data in rows:
+            row = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(70), padding=[dp(12), dp(8), dp(12), dp(8)])
+            with row.canvas.before:
+                Color(1, 1, 1, 1)
+                row.bg_card = RoundedRectangle(pos=row.pos, size=row.size, radius=[dp(10)])
+            row.bind(pos=lambda ins, val: setattr(ins.bg_card, 'pos', val), size=lambda ins, val: setattr(ins.bg_card, 'size', val))
+            
+            lbl = Label(text=f"{nome}\n[color=748596]{data}[/color]", markup=True, font_size=dp(15), color=TEXT_MAIN, size_hint_x=0.6, halign='left', valign='middle')
+            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
+            row.add_widget(lbl)
+            
+            btn_abrir = SmoothButton(text="Abrir", bg_color=PRIMARY_GREEN, size_hint_x=0.2, font_size=dp(14), radius=[dp(8)])
+            btn_abrir.bind(on_press=lambda b, i=pid, n=nome: self.abrir_projeto(i, n))
+            row.add_widget(btn_abrir)
+            
+            btn_deletar = SmoothButton(text="Excluir", bg_color=DANGER_RED, size_hint_x=0.2, font_size=dp(14), radius=[dp(8)])
+            btn_deletar.bind(on_press=lambda b, i=pid: self.confirmar_exclusao(i))
+            row.add_widget(btn_deletar)
+            
+            self.projects_list_layout.add_widget(row)
+
+    def abrir_projeto(self, proj_id, nome):
+        app = App.get_running_app()
+        app.current_project_id = proj_id
+        app.current_project_name = nome
+        app.sm.current = "trees"
+
+    def confirmar_exclusao(self, proj_id):
+        box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
+        box.add_widget(Label(text="Tem certeza que deseja apagar o projeto?\nEsta ação é irreversível.", halign="center", font_size=dp(16)))
+        
+        btn_box = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(50))
+        btn_sim = SmoothButton(text="Sim, Apagar", bg_color=DANGER_RED)
+        btn_nao = SmoothButton(text="Cancelar", bg_color=SLATE_GRAY)
+        btn_box.add_widget(btn_sim)
+        btn_box.add_widget(btn_nao)
+        box.add_widget(btn_box)
+        
+        popup = Popup(title="Aviso de Exclusão", content=box, size_hint=(0.85, 0.35))
+        
+        def deletar(instance):
+            conn = sqlite3.connect(get_db_path())
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM projetos WHERE id=?", (proj_id,))
+            cursor.execute("DELETE FROM arvores WHERE projeto_id=?", (proj_id,))
+            conn.commit()
+            conn.close()
+            popup.dismiss()
+            self.carregar_projetos()
+            
+        btn_sim.bind(on_press=deletar)
+        btn_nao.bind(on_press=popup.dismiss)
+        popup.open()
+
+
+class TreeScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.editing_id = None
+        
+        with self.canvas.before:
+            Color(*BG_COLOR)
+            self.bg_rect = Rectangle(size=self.size, pos=self.pos)
+        self.bind(size=self._update_screen_bg, pos=self._update_screen_bg)
+        
+        scroll = ScrollView(size_hint=(1, 1))
+        self.layout = BoxLayout(orientation='vertical', spacing=dp(16), padding=dp(20), size_hint_y=None)
+        self.layout.bind(minimum_height=self.layout.setter('height'))
+        scroll.add_widget(self.layout)
+        self.add_widget(scroll)
+
+        btn_voltar = SmoothButton(text="< Voltar para Projetos", bg_color=SLATE_GRAY, size_hint_y=None, height=dp(50))
+        btn_voltar.bind(on_press=self.go_back)
+        self.layout.add_widget(btn_voltar)
+
+        self.lbl_titulo = Label(text="Nova Árvore", font_size=FONT_SIZE_LARGE, bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(35))
+        self.layout.add_widget(self.lbl_titulo)
+
+        self.gps_input = SmoothTextInput(hint_text="Identificação GPS", size_hint=(1,None), height=INPUT_HEIGHT)
+        self.placa_input = SmoothTextInput(text="1", hint_text="Número da placa", size_hint=(1,None), height=INPUT_HEIGHT)
+        self.name_input = SmoothTextInput(hint_text="Nome comum / Científico", size_hint=(1,None), height=INPUT_HEIGHT)
+        self.height_input = SmoothTextInput(hint_text="Altura da árvore (m)", size_hint=(1,None), height=INPUT_HEIGHT, input_type='number', input_filter='float')
+
+        for w in [self.gps_input, self.placa_input, self.name_input, self.height_input]:
+            self.layout.add_widget(w)
+
+        self.layout.add_widget(Label(text="Medições de Fustes / CAP (cm)", font_size=FONT_SIZE_MEDIUM, bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(30)))
+        
+        self.caps_inputs = []
+        self.caps_box = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None)
+        self.caps_box.bind(minimum_height=self.caps_box.setter('height'))
+        self.layout.add_widget(self.caps_box)
+
+        self.add_cap_field(None)
+
+        self.add_cap_button = SmoothButton(text="+ Incluir outro Fuste/CAP", bg_color=SLATE_GRAY, size_hint_y=None, height=dp(55))
+        self.add_cap_button.bind(on_press=self.add_cap_field)
+        self.layout.add_widget(self.add_cap_button)
+
+        self.add_tree_button = SmoothButton(text="Adicionar Árvore", bg_color=PRIMARY_GREEN, size_hint_y=None, height=BUTTON_HEIGHT_LARGE)
+        self.add_tree_button.bind(on_press=self.save_tree)
+        self.layout.add_widget(self.add_tree_button)
+
+        self.layout.add_widget(Label(text="Últimas Coletas do Projeto", font_size=dp(16), bold=True, color=TEXT_MUTED, size_hint_y=None, height=dp(30)))
+
+        self.tree_list_layout = GridLayout(cols=1, spacing=dp(10), padding=dp(2), size_hint_y=None)
+        self.tree_list_layout.bind(minimum_height=self.tree_list_layout.setter('height'))
+        self.layout.add_widget(self.tree_list_layout)
+
+        self.history_button = SmoothButton(text="Ver Histórico Completo", bg_color=ACCENT_BLUE, size_hint_y=None, height=BUTTON_HEIGHT_LARGE)
+        self.history_button.bind(on_press=lambda x: setattr(App.get_running_app().sm, 'current', 'history'))
+        self.layout.add_widget(self.history_button)
+
+        self.export_button = SmoothButton(text="Exportar / Resumo do Projeto", bg_color=PRIMARY_GREEN, size_hint_y=None, height=BUTTON_HEIGHT_LARGE)
+        self.export_button.bind(on_press=lambda x: setattr(App.get_running_app().sm, 'current', 'confirm'))
+        self.layout.add_widget(self.export_button)
+
+    def _update_screen_bg(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+
+    def go_back(self, instance):
+        App.get_running_app().sm.current = "project"
+
+    def on_pre_enter(self):
+        app = App.get_running_app()
+        self.lbl_titulo.text = f"Projeto: {app.current_project_name}"
+        self.update_tree_list_ui()
+        self.proxima_placa()
+
+    def add_cap_field(self, instance, initial_text=""):
+        row_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=INPUT_HEIGHT)
+        cap_input = SmoothTextInput(text=initial_text, hint_text="CAP (cm)", size_hint_x=0.80, input_type='number', input_filter='float')
+        self.caps_inputs.append(cap_input)
+        
+        remove_button = SmoothButton(text="X", bg_color=DANGER_RED, size_hint_x=0.20, radius=[dp(12)])
+        remove_button.bind(on_press=lambda btn: self.remove_cap_field(row_layout, cap_input))
+        
+        row_layout.add_widget(cap_input)
+        row_layout.add_widget(remove_button)
+        self.caps_box.add_widget(row_layout)
+
+    def remove_cap_field(self, row_layout, cap_input):
+        if cap_input in self.caps_inputs:
+            self.caps_inputs.remove(cap_input)
+        self.caps_box.remove_widget(row_layout)
+
+    def proxima_placa(self):
+        app = App.get_running_app()
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT placa FROM arvores WHERE projeto_id=?", (app.current_project_id,))
+        placas = cursor.fetchall()
+        conn.close()
+        
+        max_p = 0
+        for p in placas:
+            try:
+                ip = int(p[0])
+                if ip > max_p: max_p = ip
+            except ValueError: pass
+        self.placa_input.text = str(max_p + 1)
+
+    def save_tree(self, instance):
+        gps = self.gps_input.text.strip()
+        placa = self.placa_input.text.strip()
+        name = self.name_input.text.strip()
+        height = self.height_input.text.strip()
+        caps_list = [cap.text.strip() for cap in self.caps_inputs if cap.text.strip()]
+        caps = ",".join(caps_list)
+
+        vazios = []
+        if not gps: vazios.append("GPS")
+        if not placa: vazios.append("Placa")
+        if not name: vazios.append("Nome da Espécie")
+        if not height: vazios.append("Altura")
+        if not caps_list: vazios.append("CAP/Fuste")
+
+        if vazios:
+            box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
+            campos_str = ", ".join(vazios)
+            
+            lbl_aviso = Label(
+                text=f"Atenção! Os seguintes campos estão vazios:\n[color=ff6b6b]{campos_str}[/color]\n\nDeseja salvar o registro assim mesmo?",
+                markup=True, halign="center", font_size=dp(16), color=(1, 1, 1, 1)
+            )
+            box.add_widget(lbl_aviso)
+            
+            btn_box = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(50))
+            btn_confirmar = SmoothButton(text="Salvar Assim Mesmo", bg_color=PRIMARY_GREEN)
+            btn_ajustar = SmoothButton(text="Voltar e Ajustar", bg_color=SLATE_GRAY)
+            
+            btn_box.add_widget(btn_confirmar)
+            btn_box.add_widget(btn_ajustar)
+            box.add_widget(btn_box)
+            
+            popup = Popup(title="Campos Incompletos", content=box, size_hint=(0.9, 0.38))
+            
+            btn_confirmar.bind(on_press=lambda b: [popup.dismiss(), self.execute_save(gps, placa, name, height, caps)])
+            btn_ajustar.bind(on_press=popup.dismiss)
+            popup.open()
+        else:
+            self.execute_save(gps, placa, name, height, caps)
+
+    def execute_save(self, gps, placa, name, height, caps):
+        app = App.get_running_app()
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+
+        if self.editing_id is not None:
+            cursor.execute('''
+                UPDATE arvores SET gps=?, placa=?, nome=?, altura=?, caps=? WHERE id=?
+            ''', (gps, placa, name, height, caps, self.editing_id))
+            self.editing_id = None
+            self.add_tree_button.text = "Adicionar Árvore"
+            self.add_tree_button.base_color = PRIMARY_GREEN
+        else:
+            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute('''
+                INSERT INTO arvores (projeto_id, timestamp, gps, placa, nome, altura, caps)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (app.current_project_id, now_str, gps, placa, name, height, caps))
+
+        conn.commit()
+        conn.close()
+
+        self.gps_input.text = ""
+        self.name_input.text = ""
+        self.height_input.text = ""
+        self.caps_box.clear_widgets()
+        self.caps_inputs.clear()
+        self.add_cap_field(None)
+        
+        self.update_tree_list_ui()
+        self.proxima_placa()
+
+    def update_tree_list_ui(self):
+        self.tree_list_layout.clear_widgets()
+        app = App.get_running_app()
+        
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, gps, placa, nome, altura FROM arvores WHERE projeto_id=? ORDER BY id DESC LIMIT 5", (app.current_project_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        for tid, gps, placa, nome, alt in rows:
+            row_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(75), padding=[dp(15), dp(10), dp(15), dp(10)])
+            with row_layout.canvas.before:
+                Color(1, 1, 1, 1) 
+                row_layout.bg_card = RoundedRectangle(pos=row_layout.pos, size=row_layout.size, radius=[dp(12)])
+            row_layout.bind(pos=lambda ins, val: setattr(ins.bg_card, 'pos', val), size=lambda ins, val: setattr(ins.bg_card, 'size', val))
+            
+            txt_nome = nome if nome else "Sem nome"
+            txt_gps = gps if gps else "-"
+            texto_linha = f"Placa: {placa}  |  {txt_nome}\nGPS: {txt_gps}"
+            
+            lbl = Label(text=texto_linha, font_size=dp(14), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
+            lbl.bind(size=lambda instance, val: setattr(instance, 'text_size', (val[0], val[1])))
+            row_layout.add_widget(lbl)
+            
+            edit_btn = SmoothButton(text="Editar", bg_color=ACCENT_BLUE, size_hint_x=0.22, font_size=dp(14), radius=[dp(8)])
+            edit_btn.bind(on_press=lambda btn, i=tid: self.edit_tree(i))
+            row_layout.add_widget(edit_btn)
+            
+            del_btn = SmoothButton(text="Excluir", bg_color=DANGER_RED, size_hint_x=0.23, font_size=dp(14), radius=[dp(8)])
+            del_btn.bind(on_press=lambda btn, i=tid: self.delete_tree(i))
+            row_layout.add_widget(del_btn)
+            
+            self.tree_list_layout.add_widget(row_layout)
+
+    def edit_tree(self, tree_id):
+        self.editing_id = tree_id
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT gps, placa, nome, altura, caps FROM arvores WHERE id=?", (tree_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            self.gps_input.text = row[0]
+            self.placa_input.text = row[1]
+            self.name_input.text = row[2]
+            self.height_input.text = row[3]
+            
+            self.caps_box.clear_widgets()
+            self.caps_inputs.clear()
+            
+            if row[4]:
+                for cap_val in row[4].split(","):
+                    self.add_cap_field(None, initial_text=cap_val)
+            else:
+                self.add_cap_field(None)
+
+            self.add_tree_button.text = "Salvar Alterações"
+            self.add_tree_button.base_color = ACCENT_BLUE
+
+    def delete_tree(self, tree_id):
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM arvores WHERE id=?", (tree_id,))
+        conn.commit()
+        conn.close()
+        self.update_tree_list_ui()
+        self.proxima_placa()
+
+
+class HistoryScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas.before:
+            Color(*BG_COLOR)
+            self.bg_rect = Rectangle(size=self.size, pos=self.pos)
+        self.bind(size=self._update_screen_bg, pos=self._update_screen_bg)
+        
+        main_layout = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(20))
+        main_layout.add_widget(Label(text="Histórico do Projeto", font_size=dp(24), bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(50)))
+
+        scroll = ScrollView(size_hint=(1, 1))
+        self.history_list_layout = GridLayout(cols=1, spacing=dp(10), padding=dp(2), size_hint_y=None)
+        self.history_list_layout.bind(minimum_height=self.history_list_layout.setter('height'))
+        scroll.add_widget(self.history_list_layout)
+        main_layout.add_widget(scroll)
+
+        back_button = SmoothButton(text="< Voltar à Coleta", bg_color=SLATE_GRAY, size_hint_y=None, height=BUTTON_HEIGHT_MEDIUM)
+        back_button.bind(on_press=self.go_back)
+        main_layout.add_widget(back_button)
+        self.add_widget(main_layout)
+
+    def _update_screen_bg(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+
+    def go_back(self, instance):
+        App.get_running_app().sm.current = "trees"
+
+    def on_pre_enter(self):
+        self.update_history_list_ui()
+
+    def update_history_list_ui(self):
+        self.history_list_layout.clear_widgets()
+        app = App.get_running_app()
+        
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, gps, placa, nome FROM arvores WHERE projeto_id=? ORDER BY id DESC", (app.current_project_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        tree_screen = app.sm.get_screen("trees")
+
+        for tid, gps, placa, nome in rows:
+            row_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(75), padding=[dp(15), dp(10), dp(15), dp(10)])
+            with row_layout.canvas.before:
+                Color(1, 1, 1, 1)
+                row_layout.bg_card = RoundedRectangle(pos=row_layout.pos, size=row_layout.size, radius=[dp(12)])
+            row_layout.bind(pos=lambda ins, val: setattr(ins.bg_card, 'pos', val), size=lambda ins, val: setattr(ins.bg_card, 'size', val))
+            
+            txt_gps = gps if gps else "-"
+            txt_nome = nome if nome else "Sem nome"
+            texto_linha = f"Placa: {placa}  |  {txt_nome}\nGPS: {txt_gps}"
+            
+            lbl = Label(text=texto_linha, font_size=dp(14), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
+            lbl.bind(size=lambda instance, val: setattr(instance, 'text_size', (val[0], val[1])))
+            row_layout.add_widget(lbl)
+            
+            edit_btn = SmoothButton(text="Editar", bg_color=ACCENT_BLUE, size_hint_x=0.22, font_size=dp(14), radius=[dp(8)])
+            edit_btn.bind(on_press=lambda btn, i=tid: self.edit_and_go(tree_screen, i))
+            row_layout.add_widget(edit_btn)
+            
+            del_btn = SmoothButton(text="Excluir", bg_color=DANGER_RED, size_hint_x=0.23, font_size=dp(14), radius=[dp(8)])
+            del_btn.bind(on_press=lambda btn, i=tid: self.delete_from_history(i))
+            row_layout.add_widget(del_btn)
+            
+            self.history_list_layout.add_widget(row_layout)
+
+    def edit_and_go(self, tree_screen, tree_id):
+        tree_screen.edit_tree(tree_id)
+        App.get_running_app().sm.current = "trees"
+
+    def delete_from_history(self, tree_id):
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM arvores WHERE id=?", (tree_id,))
+        conn.commit()
+        conn.close()
+        self.update_history_list_ui()
+
+
+class ConfirmScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas.before:
+            Color(*BG_COLOR)
+            self.bg_rect = Rectangle(size=self.size, pos=self.pos)
+        self.bind(size=self._update_screen_bg, pos=self._update_screen_bg)
+        
+        self.main_layout = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(25))
+        self.label = Label(text="", font_size=FONT_SIZE_LARGE, bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(50))
+        self.main_layout.add_widget(self.label)
+
+        scroll = ScrollView(size_hint=(1, 1))
+        self.preview_list_layout = GridLayout(cols=1, spacing=dp(10), padding=dp(2), size_hint_y=None)
+        self.preview_list_layout.bind(minimum_height=self.preview_list_layout.setter('height'))
+        scroll.add_widget(self.preview_list_layout)
+        self.main_layout.add_widget(scroll)
+
+        buttons_layout = BoxLayout(orientation='vertical', spacing=dp(12), size_hint_y=None, height=dp(150))
+        
+        export_button = SmoothButton(text="Exportar para CSV", bg_color=PRIMARY_GREEN, size_hint_y=None, height=BUTTON_HEIGHT_MEDIUM)
+        export_button.bind(on_press=self.exportar_csv)
+        buttons_layout.add_widget(export_button)
+
+        cancel_button = SmoothButton(text="Voltar para a Coleta", bg_color=SLATE_GRAY, size_hint_y=None, height=BUTTON_HEIGHT_MEDIUM)
+        cancel_button.bind(on_press=self.cancel_save)
+        buttons_layout.add_widget(cancel_button)
+
+        self.main_layout.add_widget(buttons_layout)
+        self.add_widget(self.main_layout)
+
+    def _update_screen_bg(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+
+    def on_pre_enter(self):
+        app = App.get_running_app()
+        
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT placa, nome, altura, gps FROM arvores WHERE projeto_id=?", (app.current_project_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        self.label.text = f"Resumo: {len(rows)} Árvores Cadastradas"
+        self.preview_list_layout.clear_widgets()
+
+        for placa, nome, altura, gps in rows:
+            row_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(65), padding=[dp(15), dp(10), dp(15), dp(10)])
+            with row_layout.canvas.before:
+                Color(1, 1, 1, 1)
+                row_layout.bg_card = RoundedRectangle(pos=row_layout.pos, size=row_layout.size, radius=[dp(10)])
+            row_layout.bind(pos=lambda ins, val: setattr(ins.bg_card, 'pos', val), size=lambda ins, val: setattr(ins.bg_card, 'size', val))
+            
+            n = nome if nome else "Não identificado"
+            h = f"{altura}m" if altura else "-"
+            g = gps if gps else "-"
+            texto_resumo = f"Placa: {placa}  |  {n}  |  H: {h}  |  GPS: {g}"
+            
+            lbl = Label(text=texto_resumo, font_size=dp(14), color=TEXT_MAIN, halign='left', valign='middle')
+            lbl.bind(size=lambda instance, val: setattr(instance, 'text_size', (val[0], val[1])))
+            row_layout.add_widget(lbl)
+            self.preview_list_layout.add_widget(row_layout)
+
+    def exportar_csv(self, instance):
+        app = App.get_running_app()
+        
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT timestamp, gps, placa, nome, altura, caps FROM arvores WHERE projeto_id=?", (app.current_project_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return
+
+        max_caps = 0
+        parsed_rows = []
+        for r in rows:
+            timestamp, gps, placa, nome, altura, caps_str = r
+            caps_list = caps_str.split(",") if caps_str else []
+            if len(caps_list) > max_caps:
+                max_caps = len(caps_list)
+            parsed_rows.append([timestamp, gps, placa, nome, altura] + caps_list)
+
+        header = ["Data_Hora", "GPS", "Placa", "Nome", "Altura"] + [f"CAP{i+1}" for i in range(max_caps)]
+        filename = get_export_path(f"{app.current_project_name}_exportado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(header)
+            for row in parsed_rows:
+                while len(row) < len(header):
+                    row.append("")
+                writer.writerow(row)
+
+        box = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
+        box.add_widget(Label(text=f"Arquivo gerado com sucesso!\n\nSalvo em:\n{filename}", halign="center", font_size=dp(14)))
+        btn = SmoothButton(text="Ok", bg_color=PRIMARY_GREEN, size_hint_y=None, height=dp(50))
+        box.add_widget(btn)
+        popup = Popup(title="Exportação Concluída", content=box, size_hint=(0.9, 0.4))
+        btn.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def cancel_save(self, instance):
+        App.get_running_app().sm.current = "trees"
+
+
+class TreeApp(App):
     def build(self):
-        sm = ScreenManager()
-        sm.add_widget(TelaMenu(name='menu'))
-        sm.add_widget(TelaCadastro(name='cadastro'))
-        sm.add_widget(TelaHistorico(name='historico'))
-        return sm
+        init_db()  
+        self.current_project_id = None
+        self.current_project_name = ""
+        self.sm = ScreenManager()
+        self.sm.add_widget(ProjectScreen(name="project"))
+        self.sm.add_widget(TreeScreen(name="trees"))
+        self.sm.add_widget(HistoryScreen(name="history"))
+        self.sm.add_widget(ConfirmScreen(name="confirm"))
+        return self.sm
 
-if __name__ == '__main__':
-    InventarioApp().run()
+    def on_start(self):
+        # Solicitação amigável de permissões em tempo de execução no Android
+        if platform == 'android':
+            from android.permissions import request_permissions, Permission
+            request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE])
+
+    def on_pause(self):
+        return True
+
+if __name__ == "__main__":
+    TreeApp().run()

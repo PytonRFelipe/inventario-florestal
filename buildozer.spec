@@ -6,13 +6,15 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 1.0
 
-# NOTA: Adicione aqui dentro, separadas por vírgula, outras bibliotecas que seu main.py use.
-# Exemplo: python3, kivy, pandas, openpyxl
-requirements = python3, kivy
+# CORREÇÃO: Incluído o 'android' nos requisitos para permitir acesso ao sistema do celular
+requirements = python3, kivy, android
 
 orientation = portrait
 fullscreen = 1
-android.permissions = INTERNET
+
+# CORREÇÃO: Adicionadas as permissões para leitura e escrita de arquivos
+android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
+
 android.api = 34
 android.minapi = 21
 android.ndk = 26b

@@ -264,6 +264,7 @@ class ProjectScreen(Screen):
         btn_box = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(50))
         btn_sim = SmoothButton(text="Sim, Apagar", bg_color=DANGER_RED)
         btn_nao = SmoothButton(text="Cancelar", bg_color=SLATE_GRAY)
+        
         btn_box.add_widget(btn_sim)
         btn_box.add_widget(btn_nao)
         box.add_widget(btn_box)
@@ -295,10 +296,8 @@ class TreeScreen(Screen):
             self.bg_rect = Rectangle(size=self.size, pos=self.pos)
         self.bind(size=self._update_screen_bg, pos=self._update_screen_bg)
         
-        # Estrutura Principal da Tela
         root_layout = BoxLayout(orientation='vertical')
         
-        # --- BLOCO SUPERIOR FIXO ---
         top_bar = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(95), padding=[dp(20), dp(10), dp(20), dp(5)], spacing=dp(5))
         btn_voltar = SmoothButton(text="< Voltar para Projetos", bg_color=SLATE_GRAY, size_hint_y=None, height=dp(45))
         btn_voltar.bind(on_press=self.go_back)
@@ -308,7 +307,6 @@ class TreeScreen(Screen):
         top_bar.add_widget(self.lbl_titulo)
         root_layout.add_widget(top_bar)
 
-        # --- CONTEÚDO ROLÁVEL (FORMULÁRIO E LISTA) ---
         scroll = ScrollView(size_hint=(1, 1))
         self.layout = BoxLayout(orientation='vertical', spacing=dp(16), padding=[dp(20), dp(5), dp(20), dp(10)], size_hint_y=None)
         self.layout.bind(minimum_height=self.layout.setter('height'))
@@ -347,11 +345,9 @@ class TreeScreen(Screen):
         scroll.add_widget(self.layout)
         root_layout.add_widget(scroll)
 
-        # --- BARRA INFERIOR FIXA FLUTUANTE ---
         bottom_bar = BoxLayout(orientation='horizontal', spacing=dp(12), padding=dp(15), size_hint_y=None, height=dp(85))
         with bottom_bar.canvas.before:
             Color(0.90, 0.92, 0.95, 1)
-            # CORREÇÃO CRÍTICA AQUI: Associado o bb_rect diretamente à bottom_bar
             bottom_bar.bb_rect = Rectangle(pos=bottom_bar.pos, size=bottom_bar.size)
         bottom_bar.bind(pos=lambda ins, val: setattr(ins.bb_rect, 'pos', val), size=lambda ins, val: setattr(ins.bb_rect, 'size', val))
 
@@ -492,6 +488,7 @@ class TreeScreen(Screen):
         
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
+        # CORREÇÃO: Corrigido o nome do campo de project_id para projeto_id para alinhar com o SQLite
         cursor.execute("SELECT id, gps, placa, nome, altura, caps FROM arvores WHERE projeto_id=? ORDER BY id DESC LIMIT 5", (app.current_project_id,))
         rows = cursor.fetchall()
         conn.close()
@@ -611,7 +608,8 @@ class HistoryScreen(Screen):
             
             txt_gps = gps if gps else "-"
             txt_nome = nome if nome else "Sem nome"
-            txt_caps = caps if "-" : caps
+            # CORREÇÃO DEFINITIVA: Operador ternário perfeitamente formatado sem ':' no meio da expressão
+            txt_caps = caps if caps else "-"
             texto_linha = f"Placa: {placa} | {txt_nome} (H: {alt}m)\nGPS: {txt_gps} | CAP: {txt_caps}"
             
             lbl = Label(text=texto_linha, font_size=dp(13), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
@@ -762,7 +760,6 @@ class TreeApp(App):
         return self.sm
 
     def on_start(self):
-        # CORREÇÃO ANDROID 14: Removido WRITE/READ STORAGE obsoletos para evitar avisos e crashes de sistema.
         if platform == 'android':
             from android.permissions import request_permissions, Permission
             request_permissions([Permission.INTERNET])

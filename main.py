@@ -119,7 +119,7 @@ class SmoothTextInput(TextInput):
         self.cursor_color = PRIMARY_GREEN
         self.foreground_color = (0, 0, 0, 1)         
         self.hint_text_color = (0.40, 0.45, 0.50, 1)  
-        self.font_size = dp(18)                      
+        self.font_size = dp(18)                                      
         self.padding = [dp(14), dp(16), dp(14), dp(12)] 
         self.multiline = False
         with self.canvas.before:
@@ -347,11 +347,12 @@ class TreeScreen(Screen):
         scroll.add_widget(self.layout)
         root_layout.add_widget(scroll)
 
-        # --- BARRA INFERIOR FIXA FLUTUANTE (BLINDADA CONTRA ESMAGAMENTO) ---
+        # --- BARRA INFERIOR FIXA FLUTUANTE ---
         bottom_bar = BoxLayout(orientation='horizontal', spacing=dp(12), padding=dp(15), size_hint_y=None, height=dp(85))
         with bottom_bar.canvas.before:
             Color(0.90, 0.92, 0.95, 1)
-            self.bb_rect = Rectangle(pos=bottom_bar.pos, size=bottom_bar.size)
+            # CORREÇÃO CRÍTICA AQUI: Associado o bb_rect diretamente à bottom_bar
+            bottom_bar.bb_rect = Rectangle(pos=bottom_bar.pos, size=bottom_bar.size)
         bottom_bar.bind(pos=lambda ins, val: setattr(ins.bb_rect, 'pos', val), size=lambda ins, val: setattr(ins.bb_rect, 'size', val))
 
         self.history_button = SmoothButton(text="Ver Histórico", bg_color=ACCENT_BLUE, size_hint_x=0.5, font_size=dp(16))
@@ -610,7 +611,7 @@ class HistoryScreen(Screen):
             
             txt_gps = gps if gps else "-"
             txt_nome = nome if nome else "Sem nome"
-            txt_caps = caps if caps else "-"
+            txt_caps = caps if "-" : caps
             texto_linha = f"Placa: {placa} | {txt_nome} (H: {alt}m)\nGPS: {txt_gps} | CAP: {txt_caps}"
             
             lbl = Label(text=texto_linha, font_size=dp(13), color=TEXT_MAIN, size_hint_x=0.55, halign='left', valign='middle')
@@ -761,13 +762,10 @@ class TreeApp(App):
         return self.sm
 
     def on_start(self):
+        # CORREÇÃO ANDROID 14: Removido WRITE/READ STORAGE obsoletos para evitar avisos e crashes de sistema.
         if platform == 'android':
             from android.permissions import request_permissions, Permission
-            request_permissions([
-                Permission.INTERNET,
-                Permission.WRITE_EXTERNAL_STORAGE,
-                Permission.READ_EXTERNAL_STORAGE
-            ])
+            request_permissions([Permission.INTERNET])
 
 if __name__ == '__main__':
     TreeApp().run()

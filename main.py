@@ -638,7 +638,6 @@ class HistoryScreen(Screen):
         conn.close()
         self.update_history_list_ui()
 
-
 class ConfirmScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -725,9 +724,18 @@ class ConfirmScreen(Screen):
             parsed_rows.append([timestamp, gps, placa, nome, altura] + caps_list)
 
         header = ["Data_Hora", "GPS", "Placa", "Nome", "Altura"] + [f"CAP{i+1}" for i in range(max_caps)]
-        filename = get_export_path(f"{app.current_project_name}_exportado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+        raw_filename = f"{app.current_project_name}_exportado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
-        with open(filename, "w", newline="", encoding="utf-8") as f:
+        # Caminho temporário local interno do app
+        if platform == 'android':
+            from jnius import autoclass
+            context = autoclass('org.kivy.android.PythonActivity').mActivity
+            temp_filepath = os.path.join(context.getFilesDir().getAbsolutePath(), raw_filename)
+        else:
+            temp_filepath = raw_filename
+
+        # Escreve o CSV localmente primeiro
+        with open(temp_filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f, delimiter=";")
             writer.writerow(header)
             for row in parsed_rows:
@@ -735,18 +743,70 @@ class ConfirmScreen(Screen):
                     row.append("")
                 writer.writerow(row)
 
+        # Move o arquivo para a pasta pública "Documentos/InventarioFlorestal"
+        caminho_final_msg = temp_filepath
+        if platform == 'android':
+            try:
+                from jnius import autoclass
+                context = autoclass('org.kivy.android.PythonActivity').mActivity
+                resolver = context.getContentResolver()
+                
+                ContentValues = autoclass('android.content.ContentValues')
+                String = autoclass('java.lang.String')
+                Build = autoclass('android.os.Build')
+                Environment = autoclass('android.os.Environment')
+                
+                MediaColumns = autoclass('android.provider.MediaStore$MediaColumns')
+                
+                values = ContentValues()
+                values.put(MediaColumns.DISPLAY_NAME, String(raw_filename))
+                values.put(MediaColumns.MIME_TYPE, String("text/csv"))
+                
+                if Build.VERSION.SDK_INT >= 29:  # Android 10 ou superior (Scoped Storage)
+                    # Ajustado para DIRECTORY_DOCUMENTS em vez de DIRECTORY_DOWNLOADS
+                    values.put(MediaColumns.RELATIVE_PATH, String(Environment.DIRECTORY_DOCUMENTS + "/InventarioFlorestal"))
+                    
+                    # Para salvar em Documentos usamos a tabela genérica de Files do MediaStore
+                    MediaStoreFiles = autoclass('android.provider.MediaStore$Files')
+                    collection = MediaStoreFiles.getContentUri("external")
+                    
+                    uri = resolver.insert(collection, values)
+                    
+                    if uri:
+                        out_stream = resolver.openOutputStream(uri)
+                        with open(temp_filepath, 'r', encoding='utf-8') as f:
+                            csv_text = f.read()
+                        j_string = String(csv_text)
+                        out_stream.write(j_string.getBytes(String("UTF-8")))
+                        out_stream.close()
+                        caminho_final_msg = f"Memória Interna > Documentos > InventarioFlorestal > {raw_filename}"
+                        
+                        try: os.remove(temp_filepath)
+                        except: pass
+                else:  # Fallback para Android 9 ou inferior
+                    pub_dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).getAbsolutePath()
+                    target_dir = os.path.join(pub_dir, "InventarioFlorestal")
+                    if not os.path.exists(target_dir):
+                        os.makedirs(target_dir)
+                    target_path = os.path.join(target_dir, raw_filename)
+                    import shutil
+                    shutil.copy(temp_filepath, target_path)
+                    caminho_final_msg = target_path
+            except Exception as e:
+                caminho_final_msg = f"Salvo no armazenamento interno do App: {temp_filepath}\nErro: {str(e)}"
+
+        # Exibe o popup com o caminho atualizado para a pasta de Documentos
         box = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-        box.add_widget(Label(text=f"Arquivo gerado com sucesso!\n\nSalvo em:\n{filename}", halign="center", font_size=dp(14)))
+        box.add_widget(Label(text=f"Arquivo gerado com sucesso!\n\nDisponível em:\n[color=0df2a1]{caminho_final_msg}[/color]", halign="center", font_size=dp(14), markup=True))
         btn = SmoothButton(text="Ok", bg_color=PRIMARY_GREEN, size_hint_y=None, height=dp(50))
         box.add_widget(btn)
-        popup = Popup(title="Exportação Concluída", content=box, size_hint=(0.9, 0.4))
+        popup = Popup(title="Exportação Concluída", content=box, size_hint=(0.9, 0.45))
         btn.bind(on_press=popup.dismiss)
         popup.open()
 
     def cancel_save(self, instance):
         App.get_running_app().sm.current = "trees"
-
-
+        
 class TreeApp(App):
     def build(self):
         init_db()  

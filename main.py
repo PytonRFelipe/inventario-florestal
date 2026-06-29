@@ -753,20 +753,19 @@ class ConfirmScreen(Screen):
                 
                 ContentValues = autoclass('android.content.ContentValues')
                 String = autoclass('java.lang.String')
-                Build = autoclass('android.os.Build')
                 Environment = autoclass('android.os.Environment')
                 
+                # CORREÇÃO AQUI: Importando a classe interna VERSION do Android corretamente
+                BuildVersion = autoclass('android.os.Build$VERSION')
                 MediaColumns = autoclass('android.provider.MediaStore$MediaColumns')
                 
                 values = ContentValues()
                 values.put(MediaColumns.DISPLAY_NAME, String(raw_filename))
                 values.put(MediaColumns.MIME_TYPE, String("text/csv"))
                 
-                if Build.VERSION.SDK_INT >= 29:  # Android 10 ou superior (Scoped Storage)
-                    # Ajustado para DIRECTORY_DOCUMENTS em vez de DIRECTORY_DOWNLOADS
+                if BuildVersion.SDK_INT >= 29:  # Android 10 ou superior (Scoped Storage)
                     values.put(MediaColumns.RELATIVE_PATH, String(Environment.DIRECTORY_DOCUMENTS + "/InventarioFlorestal"))
                     
-                    # Para salvar em Documentos usamos a tabela genérica de Files do MediaStore
                     MediaStoreFiles = autoclass('android.provider.MediaStore$Files')
                     collection = MediaStoreFiles.getContentUri("external")
                     

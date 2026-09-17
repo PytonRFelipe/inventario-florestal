@@ -119,7 +119,7 @@ class SmoothTextInput(TextInput):
         self.cursor_color = PRIMARY_GREEN
         self.foreground_color = (0, 0, 0, 1)         
         self.hint_text_color = (0.40, 0.45, 0.50, 1)  
-        self.font_size = dp(18)                                      
+        self.font_size = dp(18)                                       
         self.padding = [dp(14), dp(16), dp(14), dp(12)] 
         self.multiline = False
         with self.canvas.before:
@@ -488,7 +488,6 @@ class TreeScreen(Screen):
         
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
-        # CORREÇÃO: Corrigido o nome do campo de project_id para projeto_id para alinhar com o SQLite
         cursor.execute("SELECT id, gps, placa, nome, altura, caps FROM arvores WHERE projeto_id=? ORDER BY id DESC LIMIT 5", (app.current_project_id,))
         rows = cursor.fetchall()
         conn.close()
@@ -608,7 +607,6 @@ class HistoryScreen(Screen):
             
             txt_gps = gps if gps else "-"
             txt_nome = nome if nome else "Sem nome"
-            # CORREÇÃO DEFINITIVA: Operador ternário perfeitamente formatado sem ':' no meio da expressão
             txt_caps = caps if caps else "-"
             texto_linha = f"Placa: {placa} | {txt_nome} (H: {alt}m)\nGPS: {txt_gps} | CAP: {txt_caps}"
             
@@ -637,6 +635,7 @@ class HistoryScreen(Screen):
         conn.commit()
         conn.close()
         self.update_history_list_ui()
+
 
 class ConfirmScreen(Screen):
     def __init__(self, **kwargs):
@@ -695,122 +694,74 @@ class ConfirmScreen(Screen):
             n = nome if nome else "Não identificado"
             h = f"{altura}m" if altura else "-"
             g = gps if gps else "-"
-            texto_resumo = f"Placa: {placa}  |  {n}  |  H: {h}  |  GPS: {g}"
             
-            lbl = Label(text=texto_resumo, font_size=dp(14), color=TEXT_MAIN, halign='left', valign='middle')
-            lbl.bind(size=lambda instance, val: setattr(instance, 'text_size', (val[0], val[1])))
+            lbl = Label(text=f"Placa: {placa} | {n}\nAltura: {h} | GPS: {g}", font_size=dp(13), color=TEXT_MAIN, halign='left', valign='middle')
+            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
             row_layout.add_widget(lbl)
             self.preview_list_layout.add_widget(row_layout)
 
     def exportar_csv(self, instance):
         app = App.get_running_app()
+        proj_id = app.current_project_id
+        proj_name = app.current_project_name or "Projeto"
         
+        safe_name = "".join(c for c in proj_name if c.isalnum() or c in (' ', '_', '-')).rstrip()
+        filename = f"{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        export_path = get_export_path(filename)
+
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
-        cursor.execute("SELECT timestamp, gps, placa, nome, altura, caps FROM arvores WHERE projeto_id=?", (app.current_project_id,))
+        cursor.execute("SELECT id, timestamp, gps, placa, nome, altura, caps FROM arvores WHERE projeto_id=? ORDER BY id ASC", (proj_id,))
         rows = cursor.fetchall()
         conn.close()
 
         if not rows:
+            popup_box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
+            popup_box.add_widget(Label(text="Nenhuma árvore cadastrada para exportar.", font_size=dp(16)))
+            btn_ok = SmoothButton(text="OK", bg_color=SLATE_GRAY, size_hint_y=None, height=dp(45))
+            popup_box.add_widget(btn_ok)
+            popup = Popup(title="Aviso", content=popup_box, size_hint=(0.8, 0.3))
+            btn_ok.bind(on_press=popup.dismiss)
+            popup.open()
             return
 
-        max_caps = 0
-        parsed_rows = []
-        for r in rows:
-            timestamp, gps, placa, nome, altura, caps_str = r
-            caps_list = caps_str.split(",") if caps_str else []
-            if len(caps_list) > max_caps:
-                max_caps = len(caps_list)
-            parsed_rows.append([timestamp, gps, placa, nome, altura] + caps_list)
+        try:
+            with open(export_path, mode='w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f, delimiter=';')
+                writer.writerow(['ID', 'Data/Hora', 'GPS', 'Placa', 'Nome Comum/Cientifico', 'Altura (m)', 'CAPs (cm)'])
+                for r in rows:
+                    writer.writerow([r[0], r[1], r[2], r[3], r[4], r[5], r[6]])
 
-        header = ["Data_Hora", "GPS", "Placa", "Nome", "Altura"] + [f"CAP{i+1}" for i in range(max_caps)]
-        raw_filename = f"{app.current_project_name}_exportado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-        # Caminho temporário local interno do app
-        if platform == 'android':
-            from jnius import autoclass
-            context = autoclass('org.kivy.android.PythonActivity').mActivity
-            temp_filepath = os.path.join(context.getFilesDir().getAbsolutePath(), raw_filename)
-        else:
-            temp_filepath = raw_filename
-
-        # Escreve o CSV localmente primeiro
-        with open(temp_filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow(header)
-            for row in parsed_rows:
-                while len(row) < len(header):
-                    row.append("")
-                writer.writerow(row)
-
-        # Move o arquivo para a pasta pública "Documentos/InventarioFlorestal"
-        caminho_final_msg = temp_filepath
-        if platform == 'android':
-            try:
-                from jnius import autoclass
-                context = autoclass('org.kivy.android.PythonActivity').mActivity
-                resolver = context.getContentResolver()
-                
-                ContentValues = autoclass('android.content.ContentValues')
-                String = autoclass('java.lang.String')
-                Environment = autoclass('android.os.Environment')
-                
-                # CORREÇÃO AQUI: Importando a classe interna VERSION do Android corretamente
-                BuildVersion = autoclass('android.os.Build$VERSION')
-                MediaColumns = autoclass('android.provider.MediaStore$MediaColumns')
-                
-                values = ContentValues()
-                values.put(MediaColumns.DISPLAY_NAME, String(raw_filename))
-                values.put(MediaColumns.MIME_TYPE, String("text/csv"))
-                
-                if BuildVersion.SDK_INT >= 29:  # Android 10 ou superior (Scoped Storage)
-                    values.put(MediaColumns.RELATIVE_PATH, String(Environment.DIRECTORY_DOCUMENTS + "/InventarioFlorestal"))
-                    
-                    MediaStoreFiles = autoclass('android.provider.MediaStore$Files')
-                    collection = MediaStoreFiles.getContentUri("external")
-                    
-                    uri = resolver.insert(collection, values)
-                    
-                    if uri:
-                        out_stream = resolver.openOutputStream(uri)
-                        with open(temp_filepath, 'r', encoding='utf-8') as f:
-                            csv_text = f.read()
-                        j_string = String(csv_text)
-                        out_stream.write(j_string.getBytes(String("UTF-8")))
-                        out_stream.close()
-                        caminho_final_msg = f"Memória Interna > Documentos > InventarioFlorestal > {raw_filename}"
-                        
-                        try: os.remove(temp_filepath)
-                        except: pass
-                else:  # Fallback para Android 9 ou inferior
-                    pub_dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).getAbsolutePath()
-                    target_dir = os.path.join(pub_dir, "InventarioFlorestal")
-                    if not os.path.exists(target_dir):
-                        os.makedirs(target_dir)
-                    target_path = os.path.join(target_dir, raw_filename)
-                    import shutil
-                    shutil.copy(temp_filepath, target_path)
-                    caminho_final_msg = target_path
-            except Exception as e:
-                caminho_final_msg = f"Salvo no armazenamento interno do App: {temp_filepath}\nErro: {str(e)}"
-
-        # Exibe o popup com o caminho atualizado para a pasta de Documentos
-        box = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-        box.add_widget(Label(text=f"Arquivo gerado com sucesso!\n\nDisponível em:\n[color=0df2a1]{caminho_final_msg}[/color]", halign="center", font_size=dp(14), markup=True))
-        btn = SmoothButton(text="Ok", bg_color=PRIMARY_GREEN, size_hint_y=None, height=dp(50))
-        box.add_widget(btn)
-        popup = Popup(title="Exportação Concluída", content=box, size_hint=(0.9, 0.45))
-        btn.bind(on_press=popup.dismiss)
-        popup.open()
+            popup_box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
+            lbl_msg = Label(
+                text=f"Arquivo CSV exportado com sucesso!\n\nSalvo em:\n[color=00e676]{export_path}[/color]",
+                markup=True, halign="center", font_size=dp(14)
+            )
+            popup_box.add_widget(lbl_msg)
+            btn_ok = SmoothButton(text="Excelente!", bg_color=PRIMARY_GREEN, size_hint_y=None, height=dp(45))
+            popup_box.add_widget(btn_ok)
+            popup = Popup(title="Exportação Concluída", content=popup_box, size_hint=(0.85, 0.4))
+            btn_ok.bind(on_press=popup.dismiss)
+            popup.open()
+        except Exception as e:
+            popup_box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
+            popup_box.add_widget(Label(text=f"Erro ao exportar CSV:\n{str(e)}", halign="center", font_size=dp(14)))
+            btn_ok = SmoothButton(text="OK", bg_color=DANGER_RED, size_hint_y=None, height=dp(45))
+            popup_box.add_widget(btn_ok)
+            popup = Popup(title="Erro na Exportação", content=popup_box, size_hint=(0.85, 0.35))
+            btn_ok.bind(on_press=popup.dismiss)
+            popup.open()
 
     def cancel_save(self, instance):
         App.get_running_app().sm.current = "trees"
-        
-class TreeApp(App):
+
+
+class InventarioApp(App):
+    current_project_id = None
+    current_project_name = ""
+
     def build(self):
-        init_db()  
-        self.current_project_id = None
-        self.current_project_name = ""
+        init_db()
         self.sm = ScreenManager()
         self.sm.add_widget(ProjectScreen(name="project"))
         self.sm.add_widget(TreeScreen(name="trees"))
@@ -818,10 +769,6 @@ class TreeApp(App):
         self.sm.add_widget(ConfirmScreen(name="confirm"))
         return self.sm
 
-    def on_start(self):
-        if platform == 'android':
-            from android.permissions import request_permissions, Permission
-            request_permissions([Permission.INTERNET])
 
-if __name__ == '__main__':
-    TreeApp().run()
+if __name__ == "__main__":
+    InventarioApp().run()

@@ -2,6 +2,7 @@ import csv
 import os
 import sqlite3
 from datetime import datetime
+
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.textinput import TextInput
@@ -14,7 +15,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
 from kivy.core.window import Window
 from kivy.metrics import dp 
-from kivy.properties import ListProperty
+from kivy.properties import ListProperty, BooleanProperty
 from kivy.utils import platform
 
 # Ajuste de teclado virtual
@@ -42,16 +43,6 @@ def get_db_path():
         context = autoclass('org.kivy.android.PythonActivity').mActivity
         return os.path.join(context.getFilesDir().getAbsolutePath(), "inventario.db")
     return "inventario.db"
-
-def get_export_path(filename):
-    if platform == 'android':
-        from jnius import autoclass
-        context = autoclass('org.kivy.android.PythonActivity').mActivity
-        ext_dir = os.path.join(context.getExternalFilesDir(None).getAbsolutePath(), "InventarioFlorestal")
-        if not os.path.exists(ext_dir):
-            os.makedirs(ext_dir)
-        return os.path.join(ext_dir, filename)
-    return filename
 
 def init_db():
     conn = sqlite3.connect(get_db_path())
@@ -111,8 +102,13 @@ class SmoothButton(Button):
             self.canvas_color.rgba = value
 
 class SmoothTextInput(TextInput):
-    def __init__(self, **kwargs):
+    auto_capitalize = BooleanProperty(False)
+    force_comma = BooleanProperty(False)
+
+    def __init__(self, auto_capitalize=False, force_comma=False, **kwargs):
         super().__init__(**kwargs)
+        self.auto_capitalize = auto_capitalize
+        self.force_comma = force_comma
         self.background_normal = ''
         self.background_active = ''
         self.background_color = (0, 0, 0, 0)
@@ -127,12 +123,31 @@ class SmoothTextInput(TextInput):
             self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
             Color(0.70, 0.75, 0.80, 1)  
             self.border_line = Line(rounded_rectangle=(self.x, self.y, self.width, self.height, dp(12)), width=dp(1.5))
-        self.bind(pos=self._update_rect, size=self._update_rect)
+        self.bind(pos=self._update_rect, size=self._update_rect, text=self._on_text_changed)
         
     def _update_rect(self, instance, value):
         self.bg_rect.pos = instance.pos
         self.bg_rect.size = instance.size
         self.border_line.rounded_rectangle = (instance.x, instance.y, instance.width, instance.height, dp(12))
+
+    def _on_text_changed(self, instance, value):
+        if not value:
+            return
+        new_text = value
+        
+        # 1. Troca ponto por vírgula em campos numéricos
+        if self.force_comma:
+            new_text = new_text.replace('.', ',')
+            
+        # 2. Deixa apenas a PRIMEIRA letra do texto maiúscula
+        if self.auto_capitalize and not self.force_comma:
+            if len(new_text) > 0:
+                new_text = new_text[0].upper() + new_text[1:]
+
+        if new_text != value:
+            cursor_pos = self.cursor
+            self.text = new_text
+            self.cursor = cursor_pos
 
 # ------------------- TELAS DO APLICATIVO -------------------
 
@@ -148,7 +163,7 @@ class ProjectScreen(Screen):
         main_layout.add_widget(Label(text="Inventário Florestal", font_size=dp(26), bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(45)))
         
         novo_box = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None, height=dp(140))
-        self.project_input = SmoothTextInput(hint_text="Nome do novo empreendimento", size_hint_y=None, height=INPUT_HEIGHT)
+        self.project_input = SmoothTextInput(hint_text="Nome do novo empreendimento", auto_capitalize=True, size_hint_y=None, height=INPUT_HEIGHT)
         btn_criar = SmoothButton(text="Criar Novo Projeto", bg_color=PRIMARY_GREEN, size_hint_y=None, height=BUTTON_HEIGHT_MEDIUM)
         btn_criar.bind(on_press=self.criar_projeto)
         novo_box.add_widget(self.project_input)
@@ -230,7 +245,7 @@ class ProjectScreen(Screen):
         box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
         box.add_widget(Label(text="Alterar nome do empreendimento:", font_size=dp(16), color=(1, 1, 1, 1)))
         
-        txt_input = SmoothTextInput(text=nome_atual, size_hint_y=None, height=INPUT_HEIGHT)
+        txt_input = SmoothTextInput(text=nome_atual, auto_capitalize=True, size_hint_y=None, height=INPUT_HEIGHT)
         box.add_widget(txt_input)
         
         btn_box = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(50))
@@ -313,10 +328,19 @@ class TreeScreen(Screen):
 
         self.gps_input = SmoothTextInput(hint_text="Identificação GPS", size_hint=(1,None), height=INPUT_HEIGHT)
         self.placa_input = SmoothTextInput(text="1", hint_text="Número da placa", size_hint=(1,None), height=INPUT_HEIGHT)
-        self.name_input = SmoothTextInput(hint_text="Nome comum / Científico", size_hint=(1,None), height=INPUT_HEIGHT)
-        self.height_input = SmoothTextInput(hint_text="Altura da árvore (m)", size_hint=(1,None), height=INPUT_HEIGHT, input_type='number', input_filter='float')
+        
+        # Campo de Espécie com Auto-Capitalização e busca no histórico
+        self.name_input = SmoothTextInput(hint_text="Nome comum / Científico", auto_capitalize=True, size_hint=(1,None), height=INPUT_HEIGHT)
+        self.name_input.bind(text=self.filtrar_especies)
 
-        for w in [self.gps_input, self.placa_input, self.name_input, self.height_input]:
+        # Container para botões de sugestão do auto-preenchimento
+        self.suggestions_layout = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(4))
+        self.suggestions_layout.bind(minimum_height=self.suggestions_layout.setter('height'))
+
+        # Campo de Altura com substituição automática de ponto por vírgula
+        self.height_input = SmoothTextInput(hint_text="Altura da árvore (m)", force_comma=True, size_hint=(1,None), height=INPUT_HEIGHT)
+
+        for w in [self.gps_input, self.placa_input, self.name_input, self.suggestions_layout, self.height_input]:
             self.layout.add_widget(w)
 
         self.layout.add_widget(Label(text="Medições de Fustes / CAP (cm)", font_size=FONT_SIZE_MEDIUM, bold=True, color=TEXT_MAIN, size_hint_y=None, height=dp(30)))
@@ -373,12 +397,48 @@ class TreeScreen(Screen):
     def on_pre_enter(self):
         app = App.get_running_app()
         self.lbl_titulo.text = f"Projeto: {app.current_project_name}"
+        self.suggestions_layout.clear_widgets()
         self.update_tree_list_ui()
         self.proxima_placa()
 
+    def obter_historico_especies(self):
+        """Busca todas as espécies cadastradas no banco SQLite para sugestão."""
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT nome FROM arvores WHERE nome IS NOT NULL AND nome != ''")
+        rows = cursor.fetchall()
+        conn.close()
+        return [r[0] for r in rows if r[0]]
+
+    def filtrar_especies(self, instance, text):
+        """Exibe botões interativos com opções do histórico conforme o usuário digita."""
+        self.suggestions_layout.clear_widgets()
+        if not text or len(text) < 2:
+            return
+
+        especies = self.obter_historico_especies()
+        matches = [e for e in especies if text.lower() in e.lower()]
+
+        for especie in matches[:3]:  # Mostra até 3 sugestões
+            btn = SmoothButton(
+                text=especie,
+                bg_color=ACCENT_BLUE,
+                size_hint_y=None,
+                height=dp(42),
+                font_size=dp(14),
+                radius=[dp(8)]
+            )
+            btn.bind(on_release=lambda b: self.selecionar_especie(b.text))
+            self.suggestions_layout.add_widget(btn)
+
+    def selecionar_especie(self, especie_nome):
+        """Preenche o campo de texto ao tocar na sugestão e oculta os botões."""
+        self.name_input.text = especie_nome
+        self.suggestions_layout.clear_widgets()
+
     def add_cap_field(self, instance, initial_text=""):
         row_layout = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=INPUT_HEIGHT)
-        cap_input = SmoothTextInput(text=initial_text, hint_text="CAP (cm)", size_hint_x=0.80, input_type='number', input_filter='float')
+        cap_input = SmoothTextInput(text=initial_text, hint_text="CAP (cm)", force_comma=True, size_hint_x=0.80)
         self.caps_inputs.append(cap_input)
         
         remove_button = SmoothButton(text="X", bg_color=DANGER_RED, size_hint_x=0.20, radius=[dp(12)])
@@ -475,6 +535,7 @@ class TreeScreen(Screen):
         self.gps_input.text = ""
         self.name_input.text = ""
         self.height_input.text = ""
+        self.suggestions_layout.clear_widgets()
         self.caps_box.clear_widgets()
         self.caps_inputs.clear()
         self.add_cap_field(None)
@@ -706,8 +767,7 @@ class ConfirmScreen(Screen):
         proj_name = app.current_project_name or "Projeto"
         
         safe_name = "".join(c for c in proj_name if c.isalnum() or c in (' ', '_', '-')).rstrip()
-        filename = f"{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        export_path = get_export_path(filename)
+        raw_filename = f"{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
@@ -725,16 +785,72 @@ class ConfirmScreen(Screen):
             popup.open()
             return
 
+        # Caminho temporário local interno do app
+        if platform == 'android':
+            from jnius import autoclass
+            context = autoclass('org.kivy.android.PythonActivity').mActivity
+            temp_filepath = os.path.join(context.getFilesDir().getAbsolutePath(), raw_filename)
+        else:
+            temp_filepath = raw_filename
+
         try:
-            with open(export_path, mode='w', newline='', encoding='utf-8-sig') as f:
+            # 1. Escreve CSV localmente com utf-8-sig para acentos no Excel
+            with open(temp_filepath, mode='w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f, delimiter=';')
                 writer.writerow(['ID', 'Data/Hora', 'GPS', 'Placa', 'Nome Comum/Cientifico', 'Altura (m)', 'CAPs (cm)'])
                 for r in rows:
                     writer.writerow([r[0], r[1], r[2], r[3], r[4], r[5], r[6]])
 
+            caminho_final_msg = temp_filepath
+
+            # 2. Copia para a pasta pública "Documentos/InventarioFlorestal" via MediaStore no Android
+            if platform == 'android':
+                try:
+                    from jnius import autoclass
+                    context = autoclass('org.kivy.android.PythonActivity').mActivity
+                    resolver = context.getContentResolver()
+                    
+                    ContentValues = autoclass('android.content.ContentValues')
+                    String = autoclass('java.lang.String')
+                    Environment = autoclass('android.os.Environment')
+                    BuildVersion = autoclass('android.os.Build$VERSION')
+                    MediaColumns = autoclass('android.provider.MediaStore$MediaColumns')
+                    
+                    values = ContentValues()
+                    values.put(MediaColumns.DISPLAY_NAME, String(raw_filename))
+                    values.put(MediaColumns.MIME_TYPE, String("text/csv"))
+                    
+                    if BuildVersion.SDK_INT >= 29:
+                        values.put(MediaColumns.RELATIVE_PATH, String(Environment.DIRECTORY_DOCUMENTS + "/InventarioFlorestal"))
+                        MediaStoreFiles = autoclass('android.provider.MediaStore$Files')
+                        collection = MediaStoreFiles.getContentUri("external")
+                        
+                        uri = resolver.insert(collection, values)
+                        if uri:
+                            out_stream = resolver.openOutputStream(uri)
+                            with open(temp_filepath, 'r', encoding='utf-8-sig') as f:
+                                csv_text = f.read()
+                            j_string = String(csv_text)
+                            out_stream.write(j_string.getBytes(String("UTF-8")))
+                            out_stream.close()
+                            caminho_final_msg = f"Memória Interna > Documentos > InventarioFlorestal > {raw_filename}"
+                            try: os.remove(temp_filepath)
+                            except: pass
+                    else:
+                        pub_dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).getAbsolutePath()
+                        target_dir = os.path.join(pub_dir, "InventarioFlorestal")
+                        if not os.path.exists(target_dir):
+                            os.makedirs(target_dir)
+                        target_path = os.path.join(target_dir, raw_filename)
+                        import shutil
+                        shutil.copy(temp_filepath, target_path)
+                        caminho_final_msg = target_path
+                except Exception as e:
+                    caminho_final_msg = f"Salvo no armazenamento interno do App: {temp_filepath}\nErro: {str(e)}"
+
             popup_box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
             lbl_msg = Label(
-                text=f"Arquivo CSV exportado com sucesso!\n\nSalvo em:\n[color=00e676]{export_path}[/color]",
+                text=f"Arquivo CSV exportado com sucesso!\n\nSalvo em:\n[color=00e676]{caminho_final_msg}[/color]",
                 markup=True, halign="center", font_size=dp(14)
             )
             popup_box.add_widget(lbl_msg)
@@ -743,6 +859,7 @@ class ConfirmScreen(Screen):
             popup = Popup(title="Exportação Concluída", content=popup_box, size_hint=(0.85, 0.4))
             btn_ok.bind(on_press=popup.dismiss)
             popup.open()
+
         except Exception as e:
             popup_box = BoxLayout(orientation='vertical', spacing=dp(15), padding=dp(15))
             popup_box.add_widget(Label(text=f"Erro ao exportar CSV:\n{str(e)}", halign="center", font_size=dp(14)))
@@ -768,6 +885,27 @@ class InventarioApp(App):
         self.sm.add_widget(HistoryScreen(name="history"))
         self.sm.add_widget(ConfirmScreen(name="confirm"))
         return self.sm
+
+    def on_start(self):
+        self.configure_system_ui()
+
+    def configure_system_ui(self):
+        """Força a exibição permanente das barras do sistema (bateria, hora e botões do Android)."""
+        if platform == 'android':
+            try:
+                from jnius import autoclass
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                activity = PythonActivity.mActivity
+                View = autoclass('android.view.View')
+                WindowManager = autoclass('android.view.WindowManager')
+                
+                window = activity.getWindow()
+                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                
+                decorView = window.getDecorView()
+                decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE)
+            except Exception as e:
+                print(f"Erro ao configurar barras do sistema: {e}")
 
 
 if __name__ == "__main__":
